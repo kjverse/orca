@@ -79,11 +79,14 @@ describe('AI Vault session continuation', () => {
     expect(request.source.lastAssistantMessage).toBe('The component tests still need work.')
   })
 
+  // Why: only the SSH/relay scanners ever record `executionHostPlatform`, so a local row carries
+  // none at all. Deleting it here is what makes this a local Windows session rather than a
+  // remote one, and the case fold has to come from the path's own shape instead.
   it('starts in the worktree when the recorded cwd holds the agent config the session would shadow', () => {
     const sourceSession = session('codex')
+    delete sourceSession.executionHostPlatform
     sourceSession.cwd = String.raw`C:\Users\Ada`
     sourceSession.filePath = String.raw`C:\Users\ada\.codex\sessions\2026\rollout.jsonl`
-    sourceSession.executionHostPlatform = 'win32'
 
     const request = prepareAiVaultSessionContinuation({
       session: sourceSession,
@@ -96,11 +99,10 @@ describe('AI Vault session continuation', () => {
     expect(request.source.sourceWorkingDirectory).toBe(String.raw`C:\Users\Ada`)
   })
 
-  it('keeps a recorded cwd that merely sits beside or beneath the agent config root', () => {
+  it('keeps a nested cwd and still redirects a trailing-slash home', () => {
     const nested = session('codex')
     nested.cwd = '/Users/ada/Projects/client'
     nested.filePath = '/Users/ada/.codex/sessions/2026/rollout.jsonl'
-    nested.executionHostPlatform = 'darwin'
 
     expect(
       prepareAiVaultSessionContinuation({
@@ -113,7 +115,6 @@ describe('AI Vault session continuation', () => {
     const trailing = session('claude')
     trailing.cwd = '/Users/ada/'
     trailing.filePath = '/Users/ada/.claude/projects/client/session.jsonl'
-    trailing.executionHostPlatform = 'linux'
 
     expect(
       prepareAiVaultSessionContinuation({
@@ -143,7 +144,6 @@ describe('AI Vault session continuation', () => {
     // Why: a rollout hardlinked out of the real home still belongs to the config root below it.
     declared.filePath = '/Volumes/scratch/rollouts/rollout.jsonl'
     declared.codexHome = '/Users/ada/.codex'
-    declared.executionHostPlatform = 'darwin'
 
     expect(
       prepareAiVaultSessionContinuation({
@@ -160,7 +160,6 @@ describe('AI Vault session continuation', () => {
     managed.filePath =
       '/Users/ada/Library/Application Support/orca/codex-accounts/acct-1/home/sessions/rollout.jsonl'
     managed.codexHome = '/Users/ada/Library/Application Support/orca/codex-accounts/acct-1/home'
-    managed.executionHostPlatform = 'darwin'
 
     expect(
       prepareAiVaultSessionContinuation({
@@ -171,13 +170,28 @@ describe('AI Vault session continuation', () => {
     ).toBe('/Users/ada/Library/Application Support/orca/codex-accounts/acct-1')
   })
 
+  // Why: a backslash is an ordinary filename character on a POSIX host, so folding it into a
+  // separator would make two different directories compare equal and redirect a usable cwd.
+  it('does not treat a POSIX backslash as a separator', () => {
+    const posix = session('codex')
+    posix.cwd = '/srv/team\\name'
+    posix.codexHome = '/srv/team/name/.codex'
+
+    expect(
+      prepareAiVaultSessionContinuation({
+        session: posix,
+        targetWorktreeId: 'worktree-1',
+        targetWorkspacePath: '/srv/worktrees/current'
+      }).initialCwd
+    ).toBe('/srv/team\\name')
+  })
+
   // Why: a workspace can itself be the directory holding the agent config, and then no choice
   // avoids the project-scope downgrade. Redirecting must still not invent a third directory.
   it('offers no worse answer when the target workspace also holds the agent config', () => {
     const shadowed = session('codex')
     shadowed.cwd = '/Users/ada'
     shadowed.filePath = '/Users/ada/.codex/sessions/2026/rollout.jsonl'
-    shadowed.executionHostPlatform = 'darwin'
 
     expect(
       prepareAiVaultSessionContinuation({

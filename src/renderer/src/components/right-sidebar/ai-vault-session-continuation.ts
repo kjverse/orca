@@ -1,5 +1,6 @@
 import type { AgentSessionContinuationRequest } from '@/lib/agent-session-continuation'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
+import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
 
 export function canContinueAiVaultSessionInNewSession(
   session: AiVaultSession,
@@ -53,39 +54,28 @@ const AGENT_CONFIG_DIRECTORY_NAMES = new Set(['.codex', '.claude'])
 
 function shadowsAgentConfigRoot(cwd: string, session: AiVaultSession): boolean {
   const configRootParent = agentConfigRootParent(session)
-  if (!configRootParent) {
-    return false
-  }
-  const platform = session.executionHostPlatform
-  const compare = (value: string): string =>
-    platform === 'win32' || platform === 'darwin' ? value.toLowerCase() : value
-  return compare(configRootParent) === compare(normalizeDirectory(cwd))
+  return configRootParent !== null && configRootParent === normalizeRuntimePathForComparison(cwd)
 }
 
-// Why: `codexHome` names the config root outright where a transcript path only implies it, and a
-// session run from a managed or relocated home names no `.codex` at all - that home cannot be
-// shadowed, and the host's real one is not derivable here, so such a session is left alone.
+// Why: `codexHome` names the config root outright where a transcript path only implies it, so a
+// declared home is answered from alone - falling back would let an unrelated `.codex` segment in
+// the transcript speak for a home that named none.
 function agentConfigRootParent(session: AiVaultSession): string | null {
-  return configRootParent(session.codexHome) ?? configRootParentFromTranscript(session.filePath)
+  return session.codexHome?.trim()
+    ? configRootParent(session.codexHome)
+    : configRootParentFromTranscript(session.filePath)
 }
 
-function configRootParent(configRoot: string | null): string | null {
-  if (!configRoot?.trim()) {
-    return null
-  }
-  const segments = normalizeDirectory(configRoot).split('/')
+function configRootParent(configRoot: string): string | null {
+  const segments = normalizeRuntimePathForComparison(configRoot).split('/')
   const name = segments.at(-1)
   return name && AGENT_CONFIG_DIRECTORY_NAMES.has(name) ? segments.slice(0, -1).join('/') : null
 }
 
 function configRootParentFromTranscript(transcriptPath: string): string | null {
-  const segments = normalizeDirectory(transcriptPath).split('/')
+  const segments = normalizeRuntimePathForComparison(transcriptPath).split('/')
   const configIndex = segments.findIndex((segment) => AGENT_CONFIG_DIRECTORY_NAMES.has(segment))
   return configIndex > 0 ? segments.slice(0, configIndex).join('/') : null
-}
-
-function normalizeDirectory(value: string): string {
-  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 function latestAssistantPreview(session: AiVaultSession): string | null {
