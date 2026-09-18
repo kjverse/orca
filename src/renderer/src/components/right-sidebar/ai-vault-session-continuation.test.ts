@@ -136,4 +136,21 @@ describe('AI Vault session continuation', () => {
       }).initialCwd
     ).toBe('/Users/ada/Desktop/current-worktree')
   })
+
+  // Why: a workspace can itself be the directory holding the agent config, and then no choice
+  // avoids the project-scope downgrade. Redirecting must still not invent a third directory.
+  it('offers no worse answer when the target workspace also holds the agent config', () => {
+    const shadowed = session('codex')
+    shadowed.cwd = '/Users/ada'
+    shadowed.filePath = '/Users/ada/.codex/sessions/2026/rollout.jsonl'
+    shadowed.executionHostPlatform = 'darwin'
+
+    expect(
+      prepareAiVaultSessionContinuation({
+        session: shadowed,
+        targetWorktreeId: 'worktree-1',
+        targetWorkspacePath: '/Users/ada'
+      }).initialCwd
+    ).toBe('/Users/ada')
+  })
 })
