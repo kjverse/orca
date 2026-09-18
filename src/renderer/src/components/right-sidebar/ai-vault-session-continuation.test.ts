@@ -137,6 +137,40 @@ describe('AI Vault session continuation', () => {
     ).toBe('/Users/ada/Desktop/current-worktree')
   })
 
+  it('reads the declared config root even when the transcript does not name one', () => {
+    const declared = session('codex')
+    declared.cwd = '/Users/ada'
+    // Why: a rollout hardlinked out of the real home still belongs to the config root below it.
+    declared.filePath = '/Volumes/scratch/rollouts/rollout.jsonl'
+    declared.codexHome = '/Users/ada/.codex'
+    declared.executionHostPlatform = 'darwin'
+
+    expect(
+      prepareAiVaultSessionContinuation({
+        session: declared,
+        targetWorktreeId: 'worktree-1',
+        targetWorkspacePath: '/Users/ada/Desktop/current-worktree'
+      }).initialCwd
+    ).toBe('/Users/ada/Desktop/current-worktree')
+  })
+
+  it('leaves a managed or relocated home alone, since no .codex sits in the cwd to shadow it', () => {
+    const managed = session('codex')
+    managed.cwd = '/Users/ada/Library/Application Support/orca/codex-accounts/acct-1'
+    managed.filePath =
+      '/Users/ada/Library/Application Support/orca/codex-accounts/acct-1/home/sessions/rollout.jsonl'
+    managed.codexHome = '/Users/ada/Library/Application Support/orca/codex-accounts/acct-1/home'
+    managed.executionHostPlatform = 'darwin'
+
+    expect(
+      prepareAiVaultSessionContinuation({
+        session: managed,
+        targetWorktreeId: 'worktree-1',
+        targetWorkspacePath: '/Users/ada/Desktop/current-worktree'
+      }).initialCwd
+    ).toBe('/Users/ada/Library/Application Support/orca/codex-accounts/acct-1')
+  })
+
   // Why: a workspace can itself be the directory holding the agent config, and then no choice
   // avoids the project-scope downgrade. Redirecting must still not invent a third directory.
   it('offers no worse answer when the target workspace also holds the agent config', () => {

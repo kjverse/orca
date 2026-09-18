@@ -44,30 +44,41 @@ function continuationCwd(session: AiVaultSession, targetWorkspacePath: string): 
   if (!recorded) {
     return targetWorkspacePath
   }
-  return shadowsAgentConfigRoot(recorded, session.filePath, session.executionHostPlatform)
-    ? targetWorkspacePath
-    : recorded
+  return shadowsAgentConfigRoot(recorded, session) ? targetWorkspacePath : recorded
 }
 
+// Why: the agent looks for these names inside the cwd whatever its home is set to, so only a
+// config root actually named one of them can be shadowed by the directory above it.
 const AGENT_CONFIG_DIRECTORY_NAMES = new Set(['.codex', '.claude'])
 
-function shadowsAgentConfigRoot(
-  cwd: string,
-  transcriptPath: string,
-  platform: AiVaultSession['executionHostPlatform']
-): boolean {
-  const configRootParent = agentConfigRootParent(transcriptPath)
+function shadowsAgentConfigRoot(cwd: string, session: AiVaultSession): boolean {
+  const configRootParent = agentConfigRootParent(session)
   if (!configRootParent) {
     return false
   }
+  const platform = session.executionHostPlatform
   const compare = (value: string): string =>
     platform === 'win32' || platform === 'darwin' ? value.toLowerCase() : value
   return compare(configRootParent) === compare(normalizeDirectory(cwd))
 }
 
-// Why: a transcript always lives under <home>/.codex or <home>/.claude, so its own path names the
-// directory the config sits in without the renderer needing to resolve the host's home directory.
-function agentConfigRootParent(transcriptPath: string): string | null {
+// Why: `codexHome` names the config root outright where a transcript path only implies it, and a
+// session run from a managed or relocated home names no `.codex` at all - that home cannot be
+// shadowed, and the host's real one is not derivable here, so such a session is left alone.
+function agentConfigRootParent(session: AiVaultSession): string | null {
+  return configRootParent(session.codexHome) ?? configRootParentFromTranscript(session.filePath)
+}
+
+function configRootParent(configRoot: string | null): string | null {
+  if (!configRoot?.trim()) {
+    return null
+  }
+  const segments = normalizeDirectory(configRoot).split('/')
+  const name = segments.at(-1)
+  return name && AGENT_CONFIG_DIRECTORY_NAMES.has(name) ? segments.slice(0, -1).join('/') : null
+}
+
+function configRootParentFromTranscript(transcriptPath: string): string | null {
   const segments = normalizeDirectory(transcriptPath).split('/')
   const configIndex = segments.findIndex((segment) => AGENT_CONFIG_DIRECTORY_NAMES.has(segment))
   return configIndex > 0 ? segments.slice(0, configIndex).join('/') : null
